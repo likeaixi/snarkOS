@@ -231,9 +231,11 @@ impl<N: Network> Prover<N> {
                                 // Ok(proof) => proof,
                                 Ok(_proof) => {
                                     prover.solutions_prove.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                                    prover.solutions_found.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                                 }
                                 Err(error) => {
-                                    trace!("{error}");
+                                    // trace!("{error}");
+                                    prover.solutions_prove.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                                     break;
                                 }
                             };
