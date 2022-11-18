@@ -23,6 +23,7 @@ use snarkos_node_messages::{Data, Message, PuzzleResponse, UnconfirmedSolution};
 use snarkos_node_router::{Handshake, Inbound, Outbound, Router, RouterRequest};
 use snarkvm::prelude::{Address, Block, CoinbasePuzzle, EpochChallenge, Network, PrivateKey, ProverSolution, ViewKey};
 
+use ansi_term::Colour::Cyan;
 use anyhow::Result;
 use core::time::Duration;
 use rand::Rng;
@@ -30,6 +31,7 @@ use std::{
     net::SocketAddr,
     sync::{atomic::AtomicU8, Arc},
 };
+use std::sync::atomic::AtomicU32;
 use time::OffsetDateTime;
 use tokio::sync::RwLock;
 
@@ -48,6 +50,9 @@ pub struct Prover<N: Network> {
     latest_block: Arc<RwLock<Option<Block<N>>>>,
     /// The number of puzzle instances.
     puzzle_instances: Arc<AtomicU8>,
+
+    solutions_prove: Arc<AtomicU32>,
+    solutions_found: Arc<AtomicU32>,
 }
 
 impl<N: Network> Prover<N> {
@@ -67,6 +72,9 @@ impl<N: Network> Prover<N> {
             latest_epoch_challenge: Default::default(),
             latest_block: Default::default(),
             puzzle_instances: Default::default(),
+
+            solutions_prove: Default::default(),
+            solutions_found: Default::default(),
         };
         // Initialize the router handler.
         router.initialize_handler(node.clone(), router_receiver).await;
@@ -76,6 +84,50 @@ impl<N: Network> Prover<N> {
         }
         // Initialize the signal handler.
         node.handle_signals();
+
+        let prover = node.clone();
+        spawn_task_loop!(Self, {
+            fn calculate_proof_rate(now: u32, past: u32, interval: u32) -> Box<str> {
+                if interval < 1 {
+                    return Box::from("---");
+                }
+                if now <= past || past == 0 {
+                    return Box::from("---");
+                }
+                let rate = (now - past) as f64 / (interval * 60) as f64;
+                Box::from(format!("{:.2}", rate))
+            }
+
+            let mut log = std::collections::VecDeque::<u32>::from(vec![0; 60]);
+
+            loop {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                let solutions = prover.solutions_prove.load(std::sync::atomic::Ordering::SeqCst);
+                let found = prover.solutions_found.load(std::sync::atomic::Ordering::SeqCst);
+                log.push_back(solutions);
+                let m1 = *log.get(59).unwrap_or(&0);
+                let m5 = *log.get(55).unwrap_or(&0);
+                let m15 = *log.get(45).unwrap_or(&0);
+                let m30 = *log.get(30).unwrap_or(&0);
+                let m60 = log.pop_front().unwrap_or_default();
+                if solutions > 0 {
+                    info!(
+                        "{}",
+                        Cyan.normal().paint(format!(
+                            "Total/sufficient solutions: {}/{}, (1m: {} s/s, 5m: {} s/s, 15m: {} s/s, 30m: {} s/s, 60m: {} s/s)",
+                            solutions,
+                            found,
+                            calculate_proof_rate(solutions, m1, 1),
+                            calculate_proof_rate(solutions, m5, 5),
+                            calculate_proof_rate(solutions, m15, 15),
+                            calculate_proof_rate(solutions, m30, 30),
+                            calculate_proof_rate(solutions, m60, 60),
+                        ))
+                    );
+                }
+            }
+        });
+
         // Return the node.
         Ok(node)
     }
@@ -170,49 +222,65 @@ impl<N: Network> Prover<N> {
                             );
 
                             // Construct a prover solution.
-                            let prover_solution = match prover.coinbase_puzzle.prove(
+                            match prover.coinbase_puzzle.prove(
                                 &epoch_challenge,
                                 prover.address(),
                                 rand::thread_rng().gen(),
                                 Some(latest_proof_target),
                             ) {
-                                Ok(proof) => proof,
+                                // Ok(proof) => proof,
+                                Ok(_proof) => {
+                                    prover.solutions_prove.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                                }
                                 Err(error) => {
                                     trace!("{error}");
                                     break;
                                 }
                             };
 
+                            // let prover_solution = match prover.coinbase_puzzle.prove(
+                            //     &epoch_challenge,
+                            //     prover.address(),
+                            //     rand::thread_rng().gen(),
+                            //     Some(latest_proof_target),
+                            // ) {
+                            //     Ok(proof) => proof,
+                            //     Err(error) => {
+                            //         trace!("{error}");
+                            //         break;
+                            //     }
+                            // };
+
                             // Fetch the prover solution target.
-                            let prover_solution_target = match prover_solution.to_target() {
-                                Ok(target) => target,
-                                Err(error) => {
-                                    warn!("Failed to fetch prover solution target: {error}");
-                                    break;
-                                }
-                            };
+                            // let prover_solution_target = match prover_solution.to_target() {
+                            //     Ok(target) => target,
+                            //     Err(error) => {
+                            //         warn!("Failed to fetch prover solution target: {error}");
+                            //         break;
+                            //     }
+                            // };
 
                             // Ensure that the prover solution target is sufficient.
-                            match prover_solution_target >= latest_proof_target {
-                                true => {
-                                    info!("Found a Solution (Proof Target {prover_solution_target})");
-
-                                    // Propagate the "UnconfirmedSolution" to the network.
-                                    let message = Message::UnconfirmedSolution(UnconfirmedSolution {
-                                        puzzle_commitment: prover_solution.commitment(),
-                                        solution: Data::Object(prover_solution),
-                                    });
-                                    let request = RouterRequest::MessagePropagate(message, vec![]);
-                                    if let Err(error) = prover.router.process(request).await {
-                                        warn!("[UnconfirmedSolution] {error}");
-                                    }
-
-                                    break;
-                                }
-                                false => trace!(
-                                    "Prover solution was below the necessary proof target ({prover_solution_target} < {latest_proof_target})"
-                                ),
-                            }
+                            // match prover_solution_target >= latest_proof_target {
+                            //     true => {
+                            //         info!("Found a Solution (Proof Target {prover_solution_target})");
+                            //
+                            //         // Propagate the "UnconfirmedSolution" to the network.
+                            //         let message = Message::UnconfirmedSolution(UnconfirmedSolution {
+                            //             puzzle_commitment: prover_solution.commitment(),
+                            //             solution: Data::Object(prover_solution),
+                            //         });
+                            //         let request = RouterRequest::MessagePropagate(message, vec![]);
+                            //         if let Err(error) = prover.router.process(request).await {
+                            //             warn!("[UnconfirmedSolution] {error}");
+                            //         }
+                            //
+                            //         break;
+                            //     }
+                            //     false => trace!(
+                            //         "Prover solution was below the necessary proof target ({prover_solution_target} < {latest_proof_target})"
+                            //     ),
+                            // }
                         } else {
                             tokio::time::sleep(Duration::from_secs(1)).await;
                         }
