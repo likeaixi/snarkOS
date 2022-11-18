@@ -214,12 +214,12 @@ impl<N: Network> Prover<N> {
                             // Retrieve the latest proof target.
                             let latest_proof_target = block.proof_target();
 
-                            debug!(
-                                "Proving 'CoinbasePuzzle' (Epoch {}, Coinbase Target {}, Proof Target {})",
-                                epoch_challenge.epoch_number(),
-                                latest_coinbase_target,
-                                latest_proof_target,
-                            );
+                            // debug!(
+                            //     "Proving 'CoinbasePuzzle' (Epoch {}, Coinbase Target {}, Proof Target {})",
+                            //     epoch_challenge.epoch_number(),
+                            //     latest_coinbase_target,
+                            //     latest_proof_target,
+                            // );
 
                             // Construct a prover solution.
                             match prover.coinbase_puzzle.prove(
