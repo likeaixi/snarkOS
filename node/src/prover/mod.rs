@@ -110,7 +110,7 @@ impl<N: Network> Prover<N> {
                 let m15 = *log.get(45).unwrap_or(&0);
                 let m30 = *log.get(30).unwrap_or(&0);
                 let m60 = log.pop_front().unwrap_or_default();
-                if solutions > 0 {
+                if solutions >= 0 {
                     info!(
                         "{}",
                         Cyan.normal().paint(format!(
