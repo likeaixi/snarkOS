@@ -175,7 +175,8 @@ impl<N: Network> Prover<N> {
                 // If the node is not connected to any peers, then skip this iteration.
                 if prover.router.number_of_connected_peers().await == 0 {
                     warn!("Skipping an iteration of the prover solution (no connected peers)");
-                    tokio::time::sleep(Duration::from_secs(N::ANCHOR_TIME as u64)).await;
+                    // tokio::time::sleep(Duration::from_secs(N::ANCHOR_TIME as u64)).await;
+                    tokio::time::sleep(Duration::from_secs(1)).await;
                     continue;
                 }
 
@@ -189,7 +190,8 @@ impl<N: Network> Prover<N> {
                         // Send a "PuzzleRequest" to a beacon node.
                         prover.router.send_puzzle_request(prover.node_type()).await;
                         // Sleep for `N::ANCHOR_TIME` seconds.
-                        tokio::time::sleep(Duration::from_secs(N::ANCHOR_TIME as u64)).await;
+                        // tokio::time::sleep(Duration::from_secs(N::ANCHOR_TIME as u64)).await;
+                        tokio::time::sleep(Duration::from_secs(1)).await;
                         continue;
                     }
                 }
