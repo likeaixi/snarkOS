@@ -44,12 +44,14 @@ use rand::{rngs::OsRng, CryptoRng, Rng};
 use std::{
     net::SocketAddr,
     sync::{
-        atomic::{AtomicBool, AtomicU8, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering},
         Arc,
     },
 };
 use time::OffsetDateTime;
+use tokio::task;
 use tokio::task::JoinHandle;
+use ansi_term::Colour::{Cyan};
 
 /// A prover is a full node, capable of producing proofs for consensus.
 #[derive(Clone)]
@@ -74,6 +76,9 @@ pub struct Prover<N: Network, C: ConsensusStorage<N>> {
     shutdown: Arc<AtomicBool>,
     /// PhantomData.
     _phantom: PhantomData<C>,
+
+    solutions_prove: Arc<AtomicU32>,
+    solutions_found: Arc<AtomicU32>,
 }
 
 impl<N: Network, C: ConsensusStorage<N>> Prover<N, C> {
@@ -110,6 +115,8 @@ impl<N: Network, C: ConsensusStorage<N>> Prover<N, C> {
             handles: Default::default(),
             shutdown: Default::default(),
             _phantom: Default::default(),
+            solutions_prove: Default::default(),
+            solutions_found: Default::default(),
         };
         // Initialize the routing.
         node.initialize_routing().await;
@@ -117,6 +124,51 @@ impl<N: Network, C: ConsensusStorage<N>> Prover<N, C> {
         node.initialize_coinbase_puzzle().await;
         // Initialize the signal handler.
         node.handle_signals();
+
+        let solutions = node.solutions_prove.clone();
+        task::spawn(async move {
+            fn calculate_proof_rate(now: u32, past: u32, interval: u32) -> Box<str> {
+                if interval < 1 {
+                    return Box::from("---");
+                }
+                if now <= past || past == 0 {
+                    return Box::from("---");
+                }
+                let rate = (now - past) as f64 / (interval * 60) as f64;
+                Box::from(format!("{:.2}", rate))
+            }
+
+            let mut log = std::collections::VecDeque::<u32>::from(vec![0; 60]);
+
+            loop {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                let solutions = solutions.load(Ordering::SeqCst);
+                // let solutions = prover.solutions_prove.load(std::sync::atomic::Ordering::SeqCst);
+                // let found = prover.solutions_found.load(std::sync::atomic::Ordering::SeqCst);
+                log.push_back(solutions);
+                let m1 = *log.get(59).unwrap_or(&0);
+                let m5 = *log.get(55).unwrap_or(&0);
+                let m15 = *log.get(45).unwrap_or(&0);
+                let m30 = *log.get(30).unwrap_or(&0);
+                let m60 = log.pop_front().unwrap_or_default();
+                if solutions > 0 {
+                    info!(
+                        "{}",
+                        Cyan.normal().paint(format!(
+                            "Total solutions: {}, (1m: {} S/s, 5m: {} S/s, 15m: {} S/s, 30m: {} S/s, 60m: {} S/s)",
+                            solutions,
+                            calculate_proof_rate(solutions, m1, 1),
+                            calculate_proof_rate(solutions, m5, 5),
+                            calculate_proof_rate(solutions, m15, 15),
+                            calculate_proof_rate(solutions, m30, 30),
+                            calculate_proof_rate(solutions, m60, 60),
+                        ))
+                    );
+                }
+            }
+        });
+
+
         // Return the node.
         Ok(node)
     }
@@ -230,11 +282,16 @@ impl<N: Network, C: ConsensusStorage<N>> Prover<N, C> {
                 })
                 .await;
 
+                let prover = self.clone();
                 // If the prover found a solution, then broadcast it.
                 if let Ok(Some((solution_target, solution))) = result {
+                    prover.solutions_found.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    prover.solutions_prove.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     info!("Found a Solution '{}' (Proof Target {solution_target})", solution.commitment());
                     // Broadcast the prover solution.
                     self.broadcast_prover_solution(solution);
+                } else {
+                    prover.solutions_prove.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
             } else {
                 // Otherwise, sleep for a brief period of time, to await for puzzle state.
