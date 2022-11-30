@@ -43,7 +43,7 @@ git = "https://github.com/AleoHQ/snarkVM.git"
 #rev = "7ac6eee"
 #version = "0.9.7"
 branch = "feat/snarkvm-cuda"
-features = ["circuit", "console", "parallel", "cuda"]
+features = ["circuit", "synthesizer", "console", "parallel", "parameters","cuda"]
 
 [dependencies.anyhow]
 version = "1"

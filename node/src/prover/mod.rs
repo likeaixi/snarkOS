@@ -77,8 +77,7 @@ pub struct Prover<N: Network, C: ConsensusStorage<N>> {
     /// PhantomData.
     _phantom: PhantomData<C>,
 
-    solutions_prove: Arc<AtomicU32>,
-    solutions_found: Arc<AtomicU32>,
+    total_proofs: Arc<AtomicU32>,
 }
 
 impl<N: Network, C: ConsensusStorage<N>> Prover<N, C> {
@@ -115,8 +114,7 @@ impl<N: Network, C: ConsensusStorage<N>> Prover<N, C> {
             handles: Default::default(),
             shutdown: Default::default(),
             _phantom: Default::default(),
-            solutions_prove: Default::default(),
-            solutions_found: Default::default(),
+            total_proofs: Default::default(),
         };
         // Initialize the routing.
         node.initialize_routing().await;
@@ -125,7 +123,7 @@ impl<N: Network, C: ConsensusStorage<N>> Prover<N, C> {
         // Initialize the signal handler.
         node.handle_signals();
 
-        let solutions = node.solutions_prove.clone();
+        let total_proofs = node.total_proofs.clone();
         task::spawn(async move {
             fn calculate_proof_rate(now: u32, past: u32, interval: u32) -> Box<str> {
                 if interval < 1 {
@@ -142,10 +140,8 @@ impl<N: Network, C: ConsensusStorage<N>> Prover<N, C> {
 
             loop {
                 tokio::time::sleep(Duration::from_secs(60)).await;
-                let solutions = solutions.load(Ordering::SeqCst);
-                // let solutions = prover.solutions_prove.load(std::sync::atomic::Ordering::SeqCst);
-                // let found = prover.solutions_found.load(std::sync::atomic::Ordering::SeqCst);
-                log.push_back(solutions);
+                let proofs = total_proofs.load(Ordering::SeqCst);
+                log.push_back(proofs);
                 let m1 = *log.get(59).unwrap_or(&0);
                 let m5 = *log.get(55).unwrap_or(&0);
                 let m15 = *log.get(45).unwrap_or(&0);
@@ -155,7 +151,7 @@ impl<N: Network, C: ConsensusStorage<N>> Prover<N, C> {
                     info!(
                         "{}",
                         Cyan.normal().paint(format!(
-                            "Total solutions: {}, (1m: {} S/s, 5m: {} S/s, 15m: {} S/s, 30m: {} S/s, 60m: {} S/s)",
+                            "Total solutions: {}, (1m: {} s/s, 5m: {} s/s, 15m: {} s/s, 30m: {} s/s, 60m: {} s/s)",
                             solutions,
                             calculate_proof_rate(solutions, m1, 1),
                             calculate_proof_rate(solutions, m5, 5),
@@ -282,16 +278,13 @@ impl<N: Network, C: ConsensusStorage<N>> Prover<N, C> {
                 })
                 .await;
 
-                let prover = self.clone();
                 // If the prover found a solution, then broadcast it.
                 if let Ok(Some((solution_target, solution))) = result {
-                    prover.solutions_found.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    prover.solutions_prove.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     info!("Found a Solution '{}' (Proof Target {solution_target})", solution.commitment());
                     // Broadcast the prover solution.
                     self.broadcast_prover_solution(solution);
                 } else {
-                    prover.solutions_prove.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    self.total_proofs.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
             } else {
                 // Otherwise, sleep for a brief period of time, to await for puzzle state.
@@ -348,6 +341,7 @@ impl<N: Network, C: ConsensusStorage<N>> Prover<N, C> {
         });
         // Propagate the "UnconfirmedSolution" to the network.
         self.propagate(message, vec![]);
+        self.total_proofs.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Returns the current number of puzzle instances.
