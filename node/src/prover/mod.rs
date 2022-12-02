@@ -152,17 +152,17 @@ impl<N: Network, C: ConsensusStorage<N>> Prover<N, C> {
                 let m15 = *log.get(45).unwrap_or(&0);
                 let m30 = *log.get(30).unwrap_or(&0);
                 let m60 = log.pop_front().unwrap_or_default();
-                if solutions > 0 {
+                if proofs > 0 {
                     info!(
                         "{}",
                         Cyan.normal().paint(format!(
                             "Total solutions: {}, (1m: {} s/s, 5m: {} s/s, 15m: {} s/s, 30m: {} s/s, 60m: {} s/s)",
-                            solutions,
-                            calculate_proof_rate(solutions, m1, 1),
-                            calculate_proof_rate(solutions, m5, 5),
-                            calculate_proof_rate(solutions, m15, 15),
-                            calculate_proof_rate(solutions, m30, 30),
-                            calculate_proof_rate(solutions, m60, 60),
+                            proofs,
+                            calculate_proof_rate(proofs, m1, 1),
+                            calculate_proof_rate(proofs, m5, 5),
+                            calculate_proof_rate(proofs, m15, 15),
+                            calculate_proof_rate(proofs, m30, 30),
+                            calculate_proof_rate(proofs, m60, 60),
                         ))
                     );
                 }
