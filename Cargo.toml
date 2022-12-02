@@ -39,11 +39,10 @@ path = "snarkos/main.rs"
 
 [workspace.dependencies.snarkvm]
 # path = "../snarkvm"
-git = "https://github.com/AleoHQ/snarkVM.git"
+#git = "https://github.com/AleoHQ/snarkVM.git"
 #rev = "7ac6eee"
-#version = "0.9.7"
-branch = "feat/snarkvm-cuda"
-features = ["circuit", "synthesizer", "console", "parallel", "parameters","cuda"]
+version = "0.9.9"
+features = ["circuit", "console", "parallel"]
 
 [dependencies.anyhow]
 version = "1"
